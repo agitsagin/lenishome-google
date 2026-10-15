@@ -1,0 +1,74 @@
+name: Merchant Center Raporu
+
+# Bu depo GENELDİR; Actions burada ücretsiz çalışır.
+# Üretilen veri ve rapor kaydı özel depoya gider, burada saklanmaz.
+on:
+  schedule:
+    - cron: "15 6 * * 1"   # Pazartesi 09:15 (Türkiye saati)
+  workflow_dispatch:
+
+jobs:
+  rapor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      - name: Merchant Center hatalarını çek
+        env:
+          GOOGLE_MERCHANT_KEY: ${{ secrets.GOOGLE_MERCHANT_KEY }}
+          # Hesap numarası gizli bir şey değil; Secret tanımlıysa o kullanılır.
+          MERCHANT_ID: ${{ secrets.MERCHANT_ID || '5305482458' }}
+          MERCHANT_SAYFA_BOY: ${{ vars.MERCHANT_SAYFA_BOY }}
+          MERCHANT_MAKS: ${{ vars.MERCHANT_MAKS }}
+        run: python merchant_rapor.py
+
+      - name: Veriyi ve raporu özel depoya gönder
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.VERI_TOKEN }}
+          OZEL_DEPO: ${{ vars.OZEL_DEPO || 'agitsagin/eletrend-sync' }}
+        run: |
+          ls merchant_ozet.csv >/dev/null 2>&1 || exit 0
+          if [ -z "$GH_TOKEN" ]; then
+            echo "VERI_TOKEN tanımlı değil; veri özel depoya gönderilemedi."
+            exit 1
+          fi
+
+          # --- veriyi özel deponun "veri" dalına yaz
+          mkdir -p /tmp/veri
+          cp merchant_ozet.csv merchant_hatalar.csv merchant_rapor.md /tmp/veri/ 2>/dev/null || true
+          ADRES="https://x-access-token:${GH_TOKEN}@github.com/${OZEL_DEPO}.git"
+          rm -rf /tmp/vdepo
+          if ! git clone -q --depth=1 --branch veri "$ADRES" /tmp/vdepo 2>/dev/null; then
+            git clone -q --depth=1 "$ADRES" /tmp/vdepo
+            cd /tmp/vdepo
+            git checkout -q --orphan veri
+            git rm -rqf --cached . >/dev/null 2>&1 || true
+            find . -maxdepth 1 ! -name . ! -name .git -exec rm -rf {} + 2>/dev/null || true
+            cd - >/dev/null
+          fi
+          cp /tmp/veri/* /tmp/vdepo/ 2>/dev/null || true
+          cd /tmp/vdepo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f .
+          git commit -qm "merchant verisi $(date -u '+%Y-%m-%d %H:%M UTC')" || true
+          git push -q origin veri
+          cd "$GITHUB_WORKSPACE"
+
+          # --- rapor kaydını özel depoda aç (e-posta oradan gider)
+          gh label create merchant-rapor --repo "$OZEL_DEPO" --color 1D76DB \
+            --description "Haftalık Google Merchant Center raporu" 2>/dev/null || true
+          printf '\n---\ncc @%s\n' "${OZEL_DEPO%%/*}" >> merchant_rapor.md
+          gh issue create --repo "$OZEL_DEPO" \
+            --title "$(head -n1 merchant_baslik.txt)" \
+            --body-file merchant_rapor.md \
+            --label merchant-rapor

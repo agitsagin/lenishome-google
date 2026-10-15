@@ -1,0 +1,84 @@
+name: Search Console Raporu
+
+# Bu depo GENELDİR; Actions burada ücretsiz çalışır.
+#
+# Bu yüzden iki kural var:
+#   1. Üretilen veri (arama sorguları) bu depoda SAKLANMAZ. Artefakt yok,
+#      commit yok. Her şey özel depoya gönderilir.
+#   2. Rapor kaydı (issue) da özel depoda açılır. Burada açılsa arama
+#      sorguları ve sıralamalarınız herkese görünür olurdu.
+on:
+  schedule:
+    - cron: "40 6 * * 1"   # Pazartesi 09:40 (Türkiye saati)
+  workflow_dispatch:
+    inputs:
+      gun:
+        description: "Kaç günlük dönem"
+        required: false
+        default: "28"
+        type: string
+
+jobs:
+  rapor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      - name: Search Console verisini çek
+        env:
+          GOOGLE_MERCHANT_KEY: ${{ secrets.GOOGLE_MERCHANT_KEY }}
+          GOOGLE_ARAMA_KEY: ${{ secrets.GOOGLE_ARAMA_KEY }}
+          SEARCH_CONSOLE_SITE: ${{ vars.SEARCH_CONSOLE_SITE }}
+          ARAMA_GUN: ${{ inputs.gun || '28' }}
+        run: python arama_konsolu.py
+
+      - name: Veriyi ve raporu özel depoya gönder
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.VERI_TOKEN }}
+          OZEL_DEPO: ${{ vars.OZEL_DEPO || 'agitsagin/eletrend-sync' }}
+        run: |
+          ls arama_sorgular.csv >/dev/null 2>&1 || exit 0
+          if [ -z "$GH_TOKEN" ]; then
+            echo "VERI_TOKEN tanımlı değil; veri özel depoya gönderilemedi."
+            exit 1
+          fi
+
+          # --- veriyi özel deponun "veri" dalına yaz
+          mkdir -p /tmp/veri
+          cp arama_sorgular.csv arama_rapor.md /tmp/veri/ 2>/dev/null || true
+          ADRES="https://x-access-token:${GH_TOKEN}@github.com/${OZEL_DEPO}.git"
+          rm -rf /tmp/vdepo
+          if ! git clone -q --depth=1 --branch veri "$ADRES" /tmp/vdepo 2>/dev/null; then
+            git clone -q --depth=1 "$ADRES" /tmp/vdepo
+            cd /tmp/vdepo
+            git checkout -q --orphan veri
+            git rm -rqf --cached . >/dev/null 2>&1 || true
+            find . -maxdepth 1 ! -name . ! -name .git -exec rm -rf {} + 2>/dev/null || true
+            cd - >/dev/null
+          fi
+          cp /tmp/veri/* /tmp/vdepo/ 2>/dev/null || true
+          cd /tmp/vdepo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f .
+          git commit -qm "arama verisi $(date -u '+%Y-%m-%d %H:%M UTC')" || true
+          git push -q origin veri
+          cd "$GITHUB_WORKSPACE"
+
+          # --- rapor kaydını özel depoda aç (e-posta oradan gider)
+          gh label create arama-rapor --repo "$OZEL_DEPO" --color 5319E7 \
+            --description "Haftalık Search Console raporu" 2>/dev/null || true
+          printf '\n---\ncc @%s\n' "${OZEL_DEPO%%/*}" >> arama_rapor.md
+          gh issue create --repo "$OZEL_DEPO" \
+            --title "$(head -n1 arama_baslik.txt)" \
+            --body-file arama_rapor.md \
+            --label arama-rapor

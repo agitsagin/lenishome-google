@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*.csv
+*.md.tmp
+merchant_rapor.md
+merchant_baslik.txt
+arama_rapor.md
+arama_baslik.txt
