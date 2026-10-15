@@ -1,0 +1,58 @@
+name: GCP projesini Merchant hesabına kaydet
+
+# Tek seferlik kurulum adımı. Merchant API, çağrıyı yapan Cloud projesinin
+# merchant hesabıyla ilişkilendirilmiş olmasını şart koşuyor; bu ne Cloud
+# Console'dan ne de Merchant Center arayüzünden yapılabiliyor.
+# Kayıt yoksa her istek 401 / GCP_NOT_REGISTERED ile döner.
+on:
+  workflow_dispatch:
+    inputs:
+      eposta:
+        description: "Merchant Center'da kullanıcı olan e-posta adresi"
+        required: true
+        type: string
+
+jobs:
+  kayit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      - name: Kaydı yap
+        id: calistir
+        continue-on-error: true
+        env:
+          GOOGLE_MERCHANT_KEY: ${{ secrets.GOOGLE_MERCHANT_KEY }}
+          MERCHANT_ID: ${{ secrets.MERCHANT_ID || '5305482458' }}
+          GELISTIRICI_EPOSTA: ${{ inputs.eposta }}
+        run: |
+          set -o pipefail
+          python gcp_kayit.py 2>&1 | tee calisma.log
+
+      - name: Sonucu kayıt olarak yaz
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "GCP kayıt denemesi — sonuç: ${{ steps.calistir.outcome }}"
+            echo
+            echo '```'
+            tail -n 40 calisma.log 2>/dev/null || echo "(çıktı yok)"
+            echo '```'
+          } > sonuc.md
+          gh issue create \
+            --title "GCP kaydı ${{ steps.calistir.outcome }} — $(date -u '+%Y-%m-%d %H:%M UTC')" \
+            --body-file sonuc.md || true
+          [ "${{ steps.calistir.outcome }}" = "success" ]

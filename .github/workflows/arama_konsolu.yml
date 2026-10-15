@@ -22,6 +22,9 @@ jobs:
   rapor:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -33,12 +36,35 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Search Console verisini çek
+        id: calistir
+        continue-on-error: true
         env:
           GOOGLE_MERCHANT_KEY: ${{ secrets.GOOGLE_MERCHANT_KEY }}
           GOOGLE_ARAMA_KEY: ${{ secrets.GOOGLE_ARAMA_KEY }}
           SEARCH_CONSOLE_SITE: ${{ vars.SEARCH_CONSOLE_SITE }}
           ARAMA_GUN: ${{ inputs.gun || '28' }}
-        run: python arama_konsolu.py
+        run: |
+          set -o pipefail
+          python arama_konsolu.py 2>&1 | tee calisma.log
+
+      # Actions logu dış depolamada; hatayı görebilmek için kayıt açılıyor.
+      # Çıktıda arama sorgusu yok, yalnızca özet satırlar ve hata metni.
+      - name: Hata olduysa kaydı aç
+        if: steps.calistir.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "Search Console raporu çalışmadı."
+            echo
+            echo '```'
+            tail -n 40 calisma.log 2>/dev/null || echo "(çıktı yok)"
+            echo '```'
+          } > hata.md
+          gh issue create \
+            --title "Search Console raporu hatası $(date -u '+%Y-%m-%d %H:%M UTC')" \
+            --body-file hata.md || true
+          exit 1
 
       - name: Veriyi ve raporu özel depoya gönder
         if: always()
