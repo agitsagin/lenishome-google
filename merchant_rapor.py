@@ -82,12 +82,19 @@ def urunler(tok):
         if sayfa:
             p["pageToken"] = sayfa
         r = requests.get(f"{KOK}/accounts/{HESAP}/products", headers=basliklar, params=p, timeout=120)
-        if r.status_code == 403:
-            sys.exit("Merchant Center erişimi reddedildi (403). Hizmet hesabı Merchant Center'da "
-                     "kullanıcı olarak ekli mi ve Merchant API etkin mi?")
-        if r.status_code == 404:
-            sys.exit(f"Hesap bulunamadı (404). MERCHANT_ID doğru mu? Verilen: {HESAP}")
-        r.raise_for_status()
+        if r.status_code >= 400:
+            # Google'ın yanıt gövdesi sebebi açıkça yazıyor; durum kodunu
+            # yorumlamaya çalışmak yerine onu gösteriyoruz. Gövdede anahtar
+            # ya da müşteri verisi bulunmaz.
+            ipucu = {
+                401: "Jeton kabul edilmedi. Genellikle Merchant API projede etkin "
+                     "değildir ya da anahtar başka bir projeye aittir.",
+                403: "Erişim reddedildi. Hizmet hesabı Merchant Center'da kullanıcı "
+                     "olarak ekli mi?",
+                404: f"Hesap bulunamadı. MERCHANT_ID doğru mu? Verilen: {HESAP}",
+            }.get(r.status_code, "")
+            sys.exit(f"Merchant API {r.status_code} döndü. {ipucu}\n"
+                     f"Google'ın açıklaması:\n{r.text[:1200]}")
         d = r.json()
         hepsi += d.get("products", [])
         sayfa = d.get("nextPageToken")

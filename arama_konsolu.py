@@ -79,12 +79,15 @@ def sorgula(tok, bas, bit, boyutlar):
         govde = {"startDate": bas, "endDate": bit, "dimensions": boyutlar,
                  "rowLimit": SATIR, "startRow": adim * SATIR, "type": "web"}
         r = requests.post(url, headers=basliklar, json=govde, timeout=120)
-        if r.status_code == 403:
-            sys.exit("Search Console erişimi reddedildi (403). Hizmet hesabı mülke "
-                     "kullanıcı olarak ekli mi ve Search Console API etkin mi?")
-        if r.status_code == 404:
-            sys.exit(f"Mülk bulunamadı (404). SEARCH_CONSOLE_SITE doğru mu? Verilen: {SITE}")
-        r.raise_for_status()
+        if r.status_code >= 400:
+            ipucu = {
+                401: "Jeton kabul edilmedi. Genellikle Search Console API projede "
+                     "etkin değildir ya da anahtar başka bir projeye aittir.",
+                403: "Erişim reddedildi. Hizmet hesabı mülke kullanıcı olarak ekli mi?",
+                404: f"Mülk bulunamadı. SEARCH_CONSOLE_SITE doğru mu? Verilen: {SITE}",
+            }.get(r.status_code, "")
+            sys.exit(f"Search Console API {r.status_code} döndü. {ipucu}\n"
+                     f"Google'ın açıklaması:\n{r.text[:1200]}")
         satirlar = r.json().get("rows") or []
         hepsi += satirlar
         if len(satirlar) < SATIR:
