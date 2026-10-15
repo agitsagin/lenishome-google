@@ -38,7 +38,7 @@ KOK = "https://www.googleapis.com/webmasters/v3/sites"
 
 # Domain mülkü için "sc-domain:" öneki zorunlu; URL öneki mülküyse
 # "https://lenishome.com/" biçiminde verilir.
-SITE = (os.getenv("SEARCH_CONSOLE_SITE") or "sc-domain:lenishome.com").strip()
+SITE = (os.getenv("SEARCH_CONSOLE_SITE") or "https://lenishome.com/").strip()
 GUN = int(os.getenv("ARAMA_GUN") or "28")
 # Search Console verisi 2-3 gün gecikmeli; bugünü istemek yarım veri verir.
 GECIKME = int(os.getenv("ARAMA_GECIKME") or "3")
