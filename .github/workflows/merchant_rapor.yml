@@ -11,6 +11,9 @@ jobs:
   rapor:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -22,13 +25,38 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Merchant Center hatalarını çek
+        id: calistir
+        continue-on-error: true
         env:
           GOOGLE_MERCHANT_KEY: ${{ secrets.GOOGLE_MERCHANT_KEY }}
           # Hesap numarası gizli bir şey değil; Secret tanımlıysa o kullanılır.
           MERCHANT_ID: ${{ secrets.MERCHANT_ID || '5305482458' }}
           MERCHANT_SAYFA_BOY: ${{ vars.MERCHANT_SAYFA_BOY }}
           MERCHANT_MAKS: ${{ vars.MERCHANT_MAKS }}
-        run: python merchant_rapor.py
+        run: |
+          set -o pipefail
+          python merchant_rapor.py 2>&1 | tee calisma.log
+
+      # Actions log dosyaları dış depolamada tutuluyor ve bu ortamdan
+      # okunamıyor. Hata mesajını görebilmek için burada bir kayıt açılıyor.
+      # Script anahtar ya da müşteri verisi yazdırmıyor, yalnızca kendi
+      # hata metnini; o yüzden genel depoda durması sakıncasız.
+      - name: Hata olduysa kaydı aç
+        if: steps.calistir.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "Merchant raporu çalışmadı."
+            echo
+            echo '```'
+            tail -n 40 calisma.log 2>/dev/null || echo "(çıktı yok)"
+            echo '```'
+          } > hata.md
+          gh issue create \
+            --title "Merchant raporu hatası $(date -u '+%Y-%m-%d %H:%M UTC')" \
+            --body-file hata.md || true
+          exit 1
 
       - name: Veriyi ve raporu özel depoya gönder
         if: always()
