@@ -136,6 +136,10 @@ def main():
                 "Çözüm": h.get("resolution") or "",
                 "Kanal": h.get("reportingContext") or "",
                 "Belge": h.get("documentation") or "",
+                # Feed'deki adres. Tarama hatalarında asıl soru "Google hangi
+                # adresi deniyor" olduğu için bu alan şart; bizim bildiğimiz
+                # ürün adresiyle aynı olmayabilir.
+                "Adres": (u.get("productAttributes") or {}).get("link") or "",
             })
 
     with open("merchant_hatalar.csv", "w", newline="", encoding="utf-8-sig") as f:
